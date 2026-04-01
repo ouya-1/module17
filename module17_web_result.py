@@ -1054,6 +1054,13 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
                         sql: sql
                     })
                 });
+                
+                // 检查响应是否为JSON格式
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('服务器返回非JSON响应');
+                }
+                
                 const result = await response.json();
                 const elapsed = (Date.now() - startTime) / 1000;
                 

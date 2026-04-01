@@ -1310,23 +1310,30 @@ class Module17(ttk.Frame):
         conn_data = results[0]
         
         try:
-            host = conn_data.get('host', '')
-            port = conn_data.get('port', 3306)
-            user = conn_data.get('user', '')
-            password = conn_data.get('password', '')
-            database = conn_data.get('database', '')
+            # 处理sqlyog_connections_test表的字段名
+            host = conn_data.get('Host', '')
+            port = conn_data.get('Port', 3306)
+            user = conn_data.get('User', '')
+            password = conn_data.get('Password', '')
+            database = conn_data.get('Database', '')
             
-            if conn_data.get('password_encrypted', 0) == 1:
+            # 所有密码都是加密的
+            try:
                 password = sqlyog_decode(password)
+            except:
+                pass
                 
-            if conn_data.get('ssh_enabled', 0) == 1:
-                ssh_host = conn_data.get('ssh_host', '')
-                ssh_port = conn_data.get('ssh_port', 22)
-                ssh_user = conn_data.get('ssh_user', '')
-                ssh_password = conn_data.get('ssh_password', '')
+            if conn_data.get('SSH', 0) == 1:
+                ssh_host = conn_data.get('SshHost', '')
+                ssh_port = conn_data.get('SshPort', 22)
+                ssh_user = conn_data.get('SshUser', '')
+                ssh_password = conn_data.get('SshPwd', '')
                 
-                if conn_data.get('ssh_password_encrypted', 0) == 1:
+                # 所有密码都是加密的
+                try:
                     ssh_password = sqlyog_decode(ssh_password)
+                except:
+                    pass
                     
                 is_win7 = platform.system() == 'Windows' and platform.release() == '7'
                 
