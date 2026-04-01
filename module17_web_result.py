@@ -814,46 +814,432 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
         let autocompleteIndex = -1;
         let autocompleteItems = [];
         
-        sqlEditor.addEventListener('keydown', function(e) {
-            if (e.key === 'F9') {
-                e.preventDefault();
-                executeSQL();
-            } else if (e.key === 'Tab' && autocomplete.style.display === 'block') {
-                e.preventDefault();
-                if (autocompleteIndex >= 0) {
-                    insertAutocomplete(autocompleteItems[autocompleteIndex]);
+        // 连接函数
+        async function connect() {
+            try {
+                const response = await fetch('/api/connect', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    connectionId = result.connection_id;
+                    document.getElementById('connectBtn').style.display = 'none';
+                    document.getElementById('disconnectBtn').style.display = 'inline-flex';
+                    document.getElementById('refreshBtn').style.display = 'inline-flex';
+                    document.getElementById('connectionInfo').style.display = 'block';
+                    document.getElementById('connName').textContent = result.db_name;
+                    document.getElementById('connDetail').textContent = result.host + ':' + result.port;
+                    document.getElementById('dbName').textContent = result.db_name;
+                    document.getElementById('statusDot').classList.remove('disconnected');
+                    document.getElementById('statusText').textContent = '已连接';
+                    await refreshTables();
+                } else {
+                    alert('连接失败: ' + result.error);
                 }
-            } else if (e.key === 'Tab') {
-                e.preventDefault();
-                const start = this.selectionStart;
-                const end = this.selectionEnd;
-                this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
-                this.selectionStart = this.selectionEnd = start + 4;
-            } else if (e.key === 'ArrowDown' && autocomplete.style.display === 'block') {
-                e.preventDefault();
-                autocompleteIndex = Math.min(autocompleteIndex + 1, autocompleteItems.length - 1);
-                updateAutocompleteSelection();
-            } else if (e.key === 'ArrowUp' && autocomplete.style.display === 'block') {
-                e.preventDefault();
-                autocompleteIndex = Math.max(autocompleteIndex - 1, 0);
-                updateAutocompleteSelection();
-            } else if (e.key === 'Enter' && autocomplete.style.display === 'block') {
-                e.preventDefault();
-                if (autocompleteIndex >= 0) {
-                    insertAutocomplete(autocompleteItems[autocompleteIndex]);
-                }
-            } else if (e.key === 'Escape') {
-                hideAutocomplete();
+            } catch (e) {
+                alert('连接错误: ' + e.message);
             }
-        });
+        }
         
-        sqlEditor.addEventListener('input', function() {
-            tabContents[currentTab] = this.value;
-            showAutocomplete();
-        });
+        // 断开连接函数
+        async function disconnect() {
+            if (!connectionId) return;
+            
+            try {
+                await fetch('/api/disconnect?conn_id=' + connectionId);
+            } catch (e) {}
+            
+            connectionId = null;
+            tables = [];
+            columns = {};
+            document.getElementById('connectBtn').style.display = 'inline-flex';
+            document.getElementById('disconnectBtn').style.display = 'none';
+            document.getElementById('refreshBtn').style.display = 'none';
+            document.getElementById('connectionInfo').style.display = 'none';
+            document.getElementById('dbName').textContent = '-';
+            document.getElementById('statusDot').classList.add('disconnected');
+            document.getElementById('statusText').textContent = '未连接';
+            document.getElementById('dbTree').innerHTML = '<div class="no-data">请先连接数据库</div>';
+        }
         
-        sqlEditor.addEventListener('click', hideAutocomplete);
+        // 刷新表结构
+        async function refreshTables() {
+            if (!connectionId) return;
+            
+            try {
+                const response = await fetch('/api/tables?conn_id=' + connectionId);
+                const result = await response.json();
+                
+                if (result.success) {
+                    tables = result.tables || [];
+                    procedures = result.procedures || [];
+                    functions = result.functions || [];
+                    columns = result.columns || {};
+                    renderTree();
+                }
+            } catch (e) {
+                console.error('Failed to refresh tables:', e);
+            }
+        }
         
+        // 渲染数据库树
+        function renderTree() {
+            const tree = document.getElementById('dbTree');
+            let html = '<div class="sidebar-toolbar">';
+            html += '<input type="text" id="treeSearch" placeholder="搜索..." style="width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px;">';
+            html += '</div>';
+            
+            // 表
+            html += '<div class="tree-item tree-folder" onclick="toggleFolder(this)">';
+            html += '<span class="tree-icon">📁</span>';
+            html += '<span>表 (' + tables.length + ')</span>';
+            html += '</div>';
+            html += '<div class="tree-children">';
+            
+            for (const table of tables) {
+                html += '<div class="tree-item tree-table" onclick="selectTable(\'' + table + '\')" ondblclick="insertTable(\'' + table + '\')">';
+                html += '<span class="tree-icon">📄</span>';
+                html += '<span>' + table + '</span>';
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            
+            // 存储过程
+            html += '<div class="tree-item tree-folder" onclick="toggleFolder(this)">';
+            html += '<span class="tree-icon">📁</span>';
+            html += '<span>存储过程 (' + procedures.length + ')</span>';
+            html += '</div>';
+            html += '<div class="tree-children">';
+            
+            for (const procedure of procedures) {
+                html += '<div class="tree-item tree-procedure" onclick="selectProcedure(\'' + procedure + '\')">';
+                html += '<span class="tree-icon">⚙️</span>';
+                html += '<span>' + procedure + '</span>';
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            
+            // 函数
+            html += '<div class="tree-item tree-folder" onclick="toggleFolder(this)">';
+            html += '<span class="tree-icon">📁</span>';
+            html += '<span>函数 (' + functions.length + ')</span>';
+            html += '</div>';
+            html += '<div class="tree-children">';
+            
+            for (const func of functions) {
+                html += '<div class="tree-item tree-function" onclick="selectFunction(\'' + func + '\')">';
+                html += '<span class="tree-icon">📊</span>';
+                html += '<span>' + func + '</span>';
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            tree.innerHTML = html;
+            
+            // 添加搜索功能
+            document.getElementById('treeSearch').addEventListener('input', function() {
+                const searchTerm = this.value.toLowerCase();
+                const treeItems = document.querySelectorAll('.tree-item');
+                
+                treeItems.forEach(item => {
+                    if (!item.classList.contains('tree-folder')) {
+                        const text = item.textContent.toLowerCase();
+                        item.style.display = text.includes(searchTerm) ? '' : 'none';
+                    }
+                });
+            });
+        }
+        
+        // 选择存储过程
+        function selectProcedure(procedure) {
+            const items = document.querySelectorAll('.tree-item');
+            items.forEach(item => item.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+        }
+        
+        // 选择函数
+        function selectFunction(func) {
+            const items = document.querySelectorAll('.tree-item');
+            items.forEach(item => item.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+        }
+        
+        // 切换文件夹
+        function toggleFolder(element) {
+            const children = element.nextElementSibling;
+            if (children) {
+                children.style.display = children.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+        
+        // 选择表
+        function selectTable(table) {
+            const items = document.querySelectorAll('.tree-item');
+            items.forEach(item => item.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+        }
+        
+        // 插入表名
+        function insertTable(table) {
+            sqlEditor.value += 'SELECT * FROM ' + table + ' LIMIT 100;';
+            sqlEditor.focus();
+        }
+        
+        // 执行SQL
+        async function executeSQL() {
+            if (!connectionId) {
+                alert('请先连接数据库');
+                return;
+            }
+            
+            const sql = sqlEditor.value.trim();
+            if (!sql) {
+                alert('请输入SQL语句');
+                return;
+            }
+            
+            const startTime = Date.now();
+            document.getElementById('resultsInfo').textContent = '正在执行...';
+            
+            try {
+                const response = await fetch('/api/execute', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        conn_id: connectionId,
+                        sql: sql
+                    })
+                });
+                
+                // 检查响应是否为JSON格式
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('服务器返回非JSON响应');
+                }
+                
+                const result = await response.json();
+                const elapsed = (Date.now() - startTime) / 1000;
+                
+                if (result.success) {
+                    resultsData = result;
+                    renderResults(result);
+                    document.getElementById('resultsInfo').textContent = 
+                        '返回 ' + result.rows.length + ' 行, 耗时 ' + elapsed.toFixed(3) + 's';
+                    document.getElementById('execTime').textContent = '执行时间: ' + elapsed.toFixed(3) + 's';
+                } else {
+                    document.getElementById('resultsTable').innerHTML = 
+                        '<div class="no-data" style="color: #d9534f;">错误: ' + result.error + '</div>';
+                    document.getElementById('resultsInfo').textContent = '执行失败';
+                }
+            } catch (e) {
+                document.getElementById('resultsTable').innerHTML = 
+                    '<div class="no-data" style="color: #d9534f;">错误: ' + e.message + '</div>';
+                document.getElementById('resultsInfo').textContent = '执行失败';
+            }
+        }
+        
+        // 渲染结果
+        function renderResults(result) {
+            const container = document.getElementById('resultsTable');
+            
+            if (!result.columns || result.columns.length === 0) {
+                container.innerHTML = '<div class="no-data">无数据</div>';
+                return;
+            }
+            
+            let html = '<table><thead><tr>';
+            html += '<th class="row-num">#</th>';
+            for (const col of result.columns) {
+                html += '<th>' + htmlEscape(col) + '</th>';
+            }
+            html += '</tr></thead><tbody>';
+            
+            for (let i = 0; i < result.rows.length; i++) {
+                html += '<tr>';
+                html += '<td class="row-num">' + (i + 1) + '</td>';
+                for (let j = 0; j < result.columns.length; j++) {
+                    const value = result.rows[i][j];
+                    if (value === null) {
+                        html += '<td class="null-value">NULL</td>';
+                    } else {
+                        html += '<td>' + htmlEscape(String(value)) + '</td>';
+                    }
+                }
+                html += '</tr>';
+            }
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+        
+        // HTML转义
+        function htmlEscape(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // 格式化SQL
+        function formatSQL() {
+            let sql = sqlEditor.value;
+            if (!sql) return;
+            
+            // 基本格式化
+            sql = sql.trim();
+            
+            // 替换多个空格为单个空格
+            sql = sql.replace(/\s+/g, ' ');
+            
+            // 关键字大写
+            for (const kw of sqlKeywords) {
+                const regex = new RegExp('\\b' + kw + '\\b', 'gi');
+                sql = sql.replace(regex, kw);
+            }
+            
+            // 在关键字前添加换行
+            const keywords = ['SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'OUTER', 'ON', 'GROUP', 'BY', 'HAVING', 'ORDER', 'LIMIT', 'OFFSET', 'DISTINCT', 'AS'];
+            keywords.forEach(kw => {
+                const regex = new RegExp('\\s+' + kw + '\\s+', 'g');
+                sql = sql.replace(regex, '\n' + kw + ' ');
+            });
+            
+            // 缩进
+            let lines = sql.split('\n');
+            let indentedLines = [];
+            let indentLevel = 0;
+            
+            lines.forEach(line => {
+                line = line.trim();
+                if (!line) return;
+                
+                // 减少缩进
+                if (line.startsWith('FROM') || line.startsWith('WHERE') || line.startsWith('JOIN') || line.startsWith('GROUP') || line.startsWith('ORDER') || line.startsWith('LIMIT')) {
+                    indentLevel = 0;
+                }
+                
+                indentedLines.push('  '.repeat(indentLevel) + line);
+                
+                // 增加缩进
+                if (line.endsWith(',')) {
+                    indentLevel++;
+                }
+            });
+            
+            sql = indentedLines.join('\n');
+            
+            sqlEditor.value = sql;
+            tabContents[currentTab] = sql;
+        }
+        
+        // 原始格式化SQL
+        function formatSQLOriginal() {
+            let sql = sqlEditor.value;
+            sql = sql.replace(/\s+/g, ' ').trim();
+            for (const kw of sqlKeywords) {
+                const regex = new RegExp('\\b' + kw + '\\b', 'gi');
+                sql = sql.replace(regex, kw);
+            }
+            sqlEditor.value = sql;
+            tabContents[currentTab] = sql;
+        }
+        
+        // 清空SQL
+        function clearSQL() {
+            sqlEditor.value = '';
+            tabContents[currentTab] = '';
+            sqlEditor.focus();
+        }
+        
+        // 新建标签
+        function newTab() {
+            tabCounter++;
+            const newTabId = tabCounter;
+            currentTab = newTabId;
+            tabContents[newTabId] = '';
+            
+            const tabs = document.getElementById('editorTabs');
+            const newTabEl = document.createElement('div');
+            newTabEl.className = 'editor-tab';
+            newTabEl.dataset.tab = newTabId;
+            newTabEl.innerHTML = '<span>查询 ' + newTabId + '</span>' +
+                '<span class="tab-close" onclick="closeTab(event, ' + newTabId + ')">×</span>';
+            newTabEl.onclick = function(e) {
+                if (!e.target.classList.contains('tab-close')) {
+                    switchTab(newTabId);
+                }
+            };
+            tabs.appendChild(newTabEl);
+            
+            switchTab(newTabId);
+        }
+        
+        // 切换标签
+        function switchTab(tabId) {
+            tabContents[currentTab] = sqlEditor.value;
+            currentTab = tabId;
+            
+            document.querySelectorAll('.editor-tab').forEach(tab => {
+                tab.classList.toggle('active', parseInt(tab.dataset.tab) === tabId);
+            });
+            
+            sqlEditor.value = tabContents[tabId] || '';
+        }
+        
+        // 关闭标签
+        function closeTab(event, tabId) {
+            event.stopPropagation();
+            if (Object.keys(tabContents).length <= 1) {
+                return;
+            }
+            
+            delete tabContents[tabId];
+            event.currentTarget.closest('.editor-tab').remove();
+            
+            if (currentTab === tabId) {
+                const remainingTabs = Object.keys(tabContents);
+                if (remainingTabs.length > 0) {
+                    switchTab(parseInt(remainingTabs[0]));
+                }
+            }
+        }
+        
+        // 加载模板
+        async function loadTemplates() {
+            try {
+                const response = await fetch('/api/templates');
+                const result = await response.json();
+                
+                if (result.success && result.templates) {
+                    const templateList = document.getElementById('templateList');
+                    templateList.innerHTML = '';
+                    
+                    result.templates.forEach(template => {
+                        const templateItem = document.createElement('div');
+                        templateItem.className = 'template-item';
+                        templateItem.onclick = function() {
+                            insertTemplate(template.sql_content);
+                        };
+                        templateItem.textContent = template.name;
+                        templateList.appendChild(templateItem);
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to load templates:', e);
+            }
+        }
+        
+        // 插入模板
+        function insertTemplate(sql) {
+            sqlEditor.value = sql;
+            tabContents[currentTab] = sql;
+            sqlEditor.focus();
+        }
+        
+        // 自动完成相关函数
         function showAutocomplete() {
             const text = sqlEditor.value.substring(0, sqlEditor.selectionStart);
             const match = text.match(/[\w.]*$/);
@@ -937,33 +1323,57 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
             autocompleteIndex = -1;
         }
         
-        async function connect() {
-            try {
-                const response = await fetch('/api/connect', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'}
-                });
-                const result = await response.json();
-                
-                if (result.success) {
-                    connectionId = result.connection_id;
-                    document.getElementById('connectBtn').style.display = 'none';
-                    document.getElementById('disconnectBtn').style.display = 'inline-flex';
-                    document.getElementById('refreshBtn').style.display = 'inline-flex';
-                    document.getElementById('connectionInfo').style.display = 'block';
-                    document.getElementById('connName').textContent = result.db_name;
-                    document.getElementById('connDetail').textContent = result.host + ':' + result.port;
-                    document.getElementById('dbName').textContent = result.db_name;
-                    document.getElementById('statusDot').classList.remove('disconnected');
-                    document.getElementById('statusText').textContent = '已连接';
-                    await refreshTables();
-                } else {
-                    alert('连接失败: ' + result.error);
+        // 事件监听器
+        sqlEditor.addEventListener('keydown', function(e) {
+            if (e.key === 'F9') {
+                e.preventDefault();
+                executeSQL();
+            } else if (e.key === 'Tab' && autocomplete.style.display === 'block') {
+                e.preventDefault();
+                if (autocompleteIndex >= 0) {
+                    insertAutocomplete(autocompleteItems[autocompleteIndex]);
                 }
-            } catch (e) {
-                alert('连接错误: ' + e.message);
+            } else if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = this.selectionStart;
+                const end = this.selectionEnd;
+                this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
+                this.selectionStart = this.selectionEnd = start + 4;
+            } else if (e.key === 'ArrowDown' && autocomplete.style.display === 'block') {
+                e.preventDefault();
+                autocompleteIndex = Math.min(autocompleteIndex + 1, autocompleteItems.length - 1);
+                updateAutocompleteSelection();
+            } else if (e.key === 'ArrowUp' && autocomplete.style.display === 'block') {
+                e.preventDefault();
+                autocompleteIndex = Math.max(autocompleteIndex - 1, 0);
+                updateAutocompleteSelection();
+            } else if (e.key === 'Enter' && autocomplete.style.display === 'block') {
+                e.preventDefault();
+                if (autocompleteIndex >= 0) {
+                    insertAutocomplete(autocompleteItems[autocompleteIndex]);
+                }
+            } else if (e.key === 'Escape') {
+                hideAutocomplete();
             }
-        }
+        });
+        
+        sqlEditor.addEventListener('input', function() {
+            tabContents[currentTab] = this.value;
+            showAutocomplete();
+        });
+        
+        sqlEditor.addEventListener('click', hideAutocomplete);
+        
+        // 页面加载时加载模板
+        window.addEventListener('DOMContentLoaded', function() {
+            loadTemplates();
+        });
+        
+        window.addEventListener('beforeunload', function() {
+            if (connectionId) {
+                fetch('/api/disconnect?conn_id=' + connectionId);
+            }
+        });
         
         async function disconnect() {
             if (!connectionId) return;
