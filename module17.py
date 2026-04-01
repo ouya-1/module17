@@ -91,12 +91,9 @@ class Module17(ttk.Frame):
         self.sub_notebook.add(query_frame, text='SQL查询')
         
         query_frame.columnconfigure(0, weight=1)
-        query_frame.columnconfigure(1, weight=0)
-        query_frame.rowconfigure(1, weight=0)
+        query_frame.rowconfigure(1, weight=1)
         
-        self._setup_top_panel(query_frame)
-        self._setup_middle_panel(query_frame)
-        self._setup_status_bar(query_frame)
+        self._setup_simple_query_panel(query_frame)
         
     def _setup_top_panel(self, parent):
         top_frame = ttk.Frame(parent)
@@ -212,10 +209,31 @@ class Module17(ttk.Frame):
         ttk.Label(param_frame, text="参数输入", style='Header.TLabel').grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
         ttk.Label(param_frame, text="请选择预设SQL模板", style='Info.TLabel').grid(row=1, column=0, columnspan=2)
         
-    def _setup_status_bar(self, parent):
+    def _setup_simple_query_panel(self, parent):
+        main_frame = ttk.Frame(parent)
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=1)
+        
+        ttk.Label(main_frame, text="选择数据库连接:", style='Header.TLabel').grid(row=0, column=0, sticky=tk.W, padx=(0, 10), pady=(0, 10))
+        
+        control_frame = ttk.Frame(main_frame)
+        control_frame.grid(row=1, column=0, sticky=(tk.W, tk.E))
+        
+        self.db_var = tk.StringVar()
+        self.db_combo = ttk.Combobox(control_frame, textvariable=self.db_var, width=60, state='readonly')
+        self.db_combo.grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
+        self.db_combo.bind('<<ComboboxSelected>>', self.on_db_selected)
+        
+        btn_frame = ttk.Frame(control_frame)
+        btn_frame.grid(row=0, column=1, padx=5)
+        
+        ttk.Button(btn_frame, text="刷新连接", command=self.load_db_connections, style='Action.TButton').grid(row=0, column=0, padx=2)
+        ttk.Button(btn_frame, text="Link", command=self.open_web_interface, style='Primary.TButton').grid(row=0, column=1, padx=2)
+        
         self.status_var = tk.StringVar(value="就绪")
         status_bar = ttk.Label(parent, textvariable=self.status_var, style='Info.TLabel', relief=tk.SUNKEN, anchor=tk.W)
-        status_bar.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(5, 0))
+        status_bar.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
         
     def _create_db_manager_tab(self):
         self.db_manager_frame = ttk.Frame(self.sub_notebook, padding="10")
@@ -321,11 +339,38 @@ class Module17(ttk.Frame):
         
         self.selected_sql_template = None
         
+    def open_web_interface(self):
+        if not self.selected_db_config:
+            self.show_dialog("警告", "请先选择目标数据库")
+            return
+        
+        result_viewer.start_server()
+        url = result_viewer.open_web_console(self.selected_db_config)
+        self.status_var.set(f"已在浏览器中打开查询器: {url}")
+    
     def load_db_connections(self):
         try:
-            sql = "SELECT * FROM sql_query_db_connections ORDER BY name"
+            sql = "SELECT * FROM sqlyog_connections ORDER BY Name"
             results = execute_sql('mysql.xjjhhb01', sql)
-            self.db_connections = results if results else []
+            self.db_connections = []
+            if results:
+                for conn in results:
+                    self.db_connections.append({
+                        'id': conn.get('Connection_id'),
+                        'name': conn.get('Name'),
+                        'host': conn.get('Host'),
+                        'port': conn.get('Port', 3306),
+                        'user': conn.get('User'),
+                        'password': conn.get('Password'),
+                        'password_encrypted': 1,
+                        'database': conn.get('Database', ''),
+                        'ssh_enabled': conn.get('SSH', 0),
+                        'ssh_host': conn.get('SshHost', ''),
+                        'ssh_port': conn.get('SshPort', 22),
+                        'ssh_user': conn.get('SshUser', ''),
+                        'ssh_password': conn.get('SshPwd', ''),
+                        'ssh_password_encrypted': 1,
+                    })
             self._update_db_combo()
             self.load_db_connections_to_tree()
         except Exception as e:
