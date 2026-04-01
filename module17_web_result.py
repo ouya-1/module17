@@ -1085,25 +1085,6 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
             event.currentTarget.classList.add('selected');
         }
         
-
-            const tree = document.getElementById('dbTree');
-            let html = '<div class="tree-item tree-folder" onclick="toggleFolder(this)">';
-            html += '<span class="tree-icon">📁</span>';
-            html += '<span>表 (' + tables.length + ')</span>';
-            html += '</div>';
-            html += '<div class="tree-children">';
-            
-            for (const table of tables) {
-                html += '<div class="tree-item tree-table" onclick="selectTable(\\'' + table + '\\')" ondblclick="insertTable(\\'' + table + '\\')">';
-                html += '<span class="tree-icon">📄</span>';
-                html += '<span>' + table + '</span>';
-                html += '</div>';
-            }
-            
-            html += '</div>';
-            tree.innerHTML = html;
-        }
-        
         function toggleFolder(element) {
             const children = element.nextElementSibling;
             if (children) {
