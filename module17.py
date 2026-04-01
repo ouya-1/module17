@@ -457,6 +457,9 @@ class Module17(ttk.Frame):
             self.selected_sql_template = template_id
             
     def _render_template_buttons(self, filter_text=''):
+        if not hasattr(self, 'template_inner_frame'):
+            return
+            
         for widget in self.template_inner_frame.winfo_children():
             widget.destroy()
         self.template_buttons = []
