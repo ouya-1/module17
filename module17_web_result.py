@@ -168,6 +168,8 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
             self._handle_execute(parsed_path)
         elif parsed_path.path == '/api/disconnect':
             self._handle_disconnect(parsed_path)
+        elif parsed_path.path == '/api/templates':
+            self._handle_get_templates(parsed_path)
         else:
             self._serve_error_page("页面未找到")
     
@@ -816,6 +818,11 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
             if (e.key === 'F9') {
                 e.preventDefault();
                 executeSQL();
+            } else if (e.key === 'Tab' && autocomplete.style.display === 'block') {
+                e.preventDefault();
+                if (autocompleteIndex >= 0) {
+                    insertAutocomplete(autocompleteItems[autocompleteIndex]);
+                }
             } else if (e.key === 'Tab') {
                 e.preventDefault();
                 const start = this.selectionStart;
@@ -999,6 +1006,87 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
         
         function renderTree() {
             const tree = document.getElementById('dbTree');
+            let html = '<div class="sidebar-toolbar">';
+            html += '<input type="text" id="treeSearch" placeholder="搜索..." style="width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px;">';
+            html += '</div>';
+            
+            // 表
+            html += '<div class="tree-item tree-folder" onclick="toggleFolder(this)">';
+            html += '<span class="tree-icon">📁</span>';
+            html += '<span>表 (' + tables.length + ')</span>';
+            html += '</div>';
+            html += '<div class="tree-children">';
+            
+            for (const table of tables) {
+                html += '<div class="tree-item tree-table" onclick="selectTable(\'' + table + '\')" ondblclick="insertTable(\'' + table + '\')">';
+                html += '<span class="tree-icon">📄</span>';
+                html += '<span>' + table + '</span>';
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            
+            // 存储过程
+            html += '<div class="tree-item tree-folder" onclick="toggleFolder(this)">';
+            html += '<span class="tree-icon">📁</span>';
+            html += '<span>存储过程 (' + procedures.length + ')</span>';
+            html += '</div>';
+            html += '<div class="tree-children">';
+            
+            for (const procedure of procedures) {
+                html += '<div class="tree-item tree-procedure" onclick="selectProcedure(\'' + procedure + '\')">';
+                html += '<span class="tree-icon">⚙️</span>';
+                html += '<span>' + procedure + '</span>';
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            
+            // 函数
+            html += '<div class="tree-item tree-folder" onclick="toggleFolder(this)">';
+            html += '<span class="tree-icon">📁</span>';
+            html += '<span>函数 (' + functions.length + ')</span>';
+            html += '</div>';
+            html += '<div class="tree-children">';
+            
+            for (const func of functions) {
+                html += '<div class="tree-item tree-function" onclick="selectFunction(\'' + func + '\')">';
+                html += '<span class="tree-icon">📊</span>';
+                html += '<span>' + func + '</span>';
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            tree.innerHTML = html;
+            
+            // 添加搜索功能
+            document.getElementById('treeSearch').addEventListener('input', function() {
+                const searchTerm = this.value.toLowerCase();
+                const treeItems = document.querySelectorAll('.tree-item');
+                
+                treeItems.forEach(item => {
+                    if (!item.classList.contains('tree-folder')) {
+                        const text = item.textContent.toLowerCase();
+                        item.style.display = text.includes(searchTerm) ? '' : 'none';
+                    }
+                });
+            });
+        }
+        
+        function selectProcedure(procedure) {
+            const items = document.querySelectorAll('.tree-item');
+            items.forEach(item => item.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+        }
+        
+        function selectFunction(func) {
+            const items = document.querySelectorAll('.tree-item');
+            items.forEach(item => item.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+        }
+        
+
+            const tree = document.getElementById('dbTree');
             let html = '<div class="tree-item tree-folder" onclick="toggleFolder(this)">';
             html += '<span class="tree-icon">📁</span>';
             html += '<span>表 (' + tables.length + ')</span>';
@@ -1127,6 +1215,57 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
         
         function formatSQL() {
             let sql = sqlEditor.value;
+            if (!sql) return;
+            
+            // 基本格式化
+            sql = sql.trim();
+            
+            // 替换多个空格为单个空格
+            sql = sql.replace(/\s+/g, ' ');
+            
+            // 关键字大写
+            for (const kw of sqlKeywords) {
+                const regex = new RegExp('\\b' + kw + '\\b', 'gi');
+                sql = sql.replace(regex, kw);
+            }
+            
+            // 在关键字前添加换行
+            const keywords = ['SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'OUTER', 'ON', 'GROUP', 'BY', 'HAVING', 'ORDER', 'LIMIT', 'OFFSET', 'DISTINCT', 'AS'];
+            keywords.forEach(kw => {
+                const regex = new RegExp('\\s+' + kw + '\\s+', 'g');
+                sql = sql.replace(regex, '\n' + kw + ' ');
+            });
+            
+            // 缩进
+            let lines = sql.split('\n');
+            let indentedLines = [];
+            let indentLevel = 0;
+            
+            lines.forEach(line => {
+                line = line.trim();
+                if (!line) return;
+                
+                // 减少缩进
+                if (line.startsWith('FROM') || line.startsWith('WHERE') || line.startsWith('JOIN') || line.startsWith('GROUP') || line.startsWith('ORDER') || line.startsWith('LIMIT')) {
+                    indentLevel = 0;
+                }
+                
+                indentedLines.push('  '.repeat(indentLevel) + line);
+                
+                // 增加缩进
+                if (line.endsWith(',')) {
+                    indentLevel++;
+                }
+            });
+            
+            sql = indentedLines.join('\n');
+            
+            sqlEditor.value = sql;
+            tabContents[currentTab] = sql;
+        }
+        
+        function formatSQLOriginal() {
+            let sql = sqlEditor.value;
             sql = sql.replace(/\\s+/g, ' ').trim();
             for (const kw of sqlKeywords) {
                 const regex = new RegExp('\\\\b' + kw + '\\\\b', 'gi');
@@ -1192,11 +1331,40 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
             }
         }
         
+        async function loadTemplates() {
+            try {
+                const response = await fetch('/api/templates');
+                const result = await response.json();
+                
+                if (result.success && result.templates) {
+                    const templateList = document.getElementById('templateList');
+                    templateList.innerHTML = '';
+                    
+                    result.templates.forEach(template => {
+                        const templateItem = document.createElement('div');
+                        templateItem.className = 'template-item';
+                        templateItem.onclick = function() {
+                            insertTemplate(template.sql_content);
+                        };
+                        templateItem.textContent = template.name;
+                        templateList.appendChild(templateItem);
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to load templates:', e);
+            }
+        }
+        
         function insertTemplate(sql) {
             sqlEditor.value = sql;
             tabContents[currentTab] = sql;
             sqlEditor.focus();
         }
+        
+        // 页面加载时加载模板
+        window.addEventListener('DOMContentLoaded', function() {
+            loadTemplates();
+        });
         
         window.addEventListener('beforeunload', function() {
             if (connectionId) {
@@ -1448,6 +1616,19 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
             conn_manager.remove_connection(conn_id)
             
             self._send_json({'success': True})
+        except Exception as e:
+            self._send_json({'success': False, 'error': str(e)})
+    
+    def _handle_get_templates(self, parsed_path):
+        try:
+            # 从数据库获取SQL模板
+            from extra.module_execute import execute_sql
+            sql = "SELECT * FROM sql_query_templates ORDER BY name"
+            results = execute_sql('mysql.xjjhhb01', sql)
+            
+            templates = results if results else []
+            
+            self._send_json({'success': True, 'templates': templates})
         except Exception as e:
             self._send_json({'success': False, 'error': str(e)})
     
