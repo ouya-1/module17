@@ -1222,26 +1222,79 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
             ssh_enabled = db_config.get('ssh_enabled', 0)
             
             if db_config.get('password_encrypted', 0) == 1:
-                password = sqlyog_decode(password)
+                try:
+                    password = sqlyog_decode(password)
+                except:
+                    pass
             
             if ssh_enabled == 1:
-                self._send_json({'success': False, 'error': 'SSH tunnel not supported in web mode yet'})
-                return
-            
-            conn = pymysql.connect(
-                host=host,
-                port=port,
-                user=user,
-                password=password,
-                database=database,
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor,
-                connect_timeout=10
-            )
+                # 尝试建立SSH隧道连接
+                ssh_host = db_config.get('ssh_host', '')
+                ssh_port = int(db_config.get('ssh_port', 22))
+                ssh_user = db_config.get('ssh_user', '')
+                ssh_password = db_config.get('ssh_password', '')
+                
+                if db_config.get('ssh_password_encrypted', 0) == 1:
+                    try:
+                        ssh_password = sqlyog_decode(ssh_password)
+                    except:
+                        pass
+                
+                try:
+                    from sshtunnel import SSHTunnelForwarder
+                    
+                    # 创建SSH隧道
+                    tunnel = SSHTunnelForwarder(
+                        (ssh_host, ssh_port),
+                        ssh_username=ssh_user,
+                        ssh_password=ssh_password,
+                        remote_bind_address=(host, port)
+                    )
+                    
+                    # 启动隧道
+                    tunnel.start()
+                    
+                    # 通过隧道连接数据库
+                    conn = pymysql.connect(
+                        host='127.0.0.1',
+                        port=tunnel.local_bind_port,
+                        user=user,
+                        password=password,
+                        database=database,
+                        charset='utf8mb4',
+                        cursorclass=pymysql.cursors.DictCursor,
+                        connect_timeout=10
+                    )
+                    
+                    # 存储隧道信息，以便在断开连接时关闭
+                    self.server_instance.tunnels = getattr(self.server_instance, 'tunnels', {})
+                    
+                except ImportError:
+                    self._send_json({'success': False, 'error': 'SSHTunnel module not installed'})
+                    return
+                except Exception as e:
+                    self._send_json({'success': False, 'error': f'SSH tunnel connection failed: {str(e)}'})
+                    return
+            else:
+                # 直接连接数据库
+                conn = pymysql.connect(
+                    host=host,
+                    port=port,
+                    user=user,
+                    password=password,
+                    database=database,
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.DictCursor,
+                    connect_timeout=10
+                )
             
             self.server_instance.conn_counter += 1
             conn_id = f"conn_{self.server_instance.conn_counter}"
             conn_manager.add_connection(conn_id, conn)
+            
+            # 如果使用了SSH隧道，存储隧道信息
+            if ssh_enabled == 1:
+                self.server_instance.tunnels[conn_id] = tunnel
             
             self._send_json({
                 'success': True,
@@ -1363,7 +1416,19 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
         try:
             params = parse_qs(parsed_path.query)
             conn_id = params.get('conn_id', [''])[0]
+            
+            # 关闭SSH隧道（如果存在）
+            if hasattr(self.server_instance, 'tunnels') and conn_id in self.server_instance.tunnels:
+                try:
+                    tunnel = self.server_instance.tunnels[conn_id]
+                    tunnel.stop()
+                    del self.server_instance.tunnels[conn_id]
+                except:
+                    pass
+            
+            # 移除数据库连接
             conn_manager.remove_connection(conn_id)
+            
             self._send_json({'success': True})
         except Exception as e:
             self._send_json({'success': False, 'error': str(e)})
