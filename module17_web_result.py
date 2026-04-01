@@ -794,6 +794,8 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
     <script>
         let connectionId = null;
         let tables = [];
+        let procedures = [];
+        let functions = [];
         let columns = {};
         let currentTab = 1;
         let tabCounter = 1;
@@ -984,7 +986,9 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
                 const result = await response.json();
                 
                 if (result.success) {
-                    tables = result.tables;
+                    tables = result.tables || [];
+                    procedures = result.procedures || [];
+                    functions = result.functions || [];
                     columns = result.columns || {};
                     renderTree();
                 }
@@ -1140,23 +1144,24 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
         
         function newTab() {
             tabCounter++;
-            currentTab = tabCounter;
-            tabContents[currentTab] = '';
+            const newTabId = tabCounter;
+            currentTab = newTabId;
+            tabContents[newTabId] = '';
             
             const tabs = document.getElementById('editorTabs');
             const newTabEl = document.createElement('div');
             newTabEl.className = 'editor-tab';
-            newTabEl.dataset.tab = currentTab;
-            newTabEl.innerHTML = '<span>查询 ' + currentTab + '</span>' +
-                '<span class="tab-close" onclick="closeTab(event, ' + currentTab + ')">×</span>';
+            newTabEl.dataset.tab = newTabId;
+            newTabEl.innerHTML = '<span>查询 ' + newTabId + '</span>' +
+                '<span class="tab-close" onclick="closeTab(event, ' + newTabId + ')">×</span>';
             newTabEl.onclick = function(e) {
                 if (!e.target.classList.contains('tab-close')) {
-                    switchTab(currentTab);
+                    switchTab(newTabId);
                 }
             };
             tabs.appendChild(newTabEl);
             
-            switchTab(currentTab);
+            switchTab(newTabId);
         }
         
         function switchTab(tabId) {
@@ -1321,9 +1326,20 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
                 return
             
             with conn.cursor() as cursor:
+                # 获取表
                 cursor.execute("SHOW TABLES")
                 tables_result = cursor.fetchall()
                 tables = [list(row.values())[0] for row in tables_result]
+                
+                # 获取存储过程
+                cursor.execute("SHOW PROCEDURE STATUS WHERE Db = DATABASE()")
+                procedures_result = cursor.fetchall()
+                procedures = [row['Name'] for row in procedures_result]
+                
+                # 获取函数
+                cursor.execute("SHOW FUNCTION STATUS WHERE Db = DATABASE()")
+                functions_result = cursor.fetchall()
+                functions = [row['Name'] for row in functions_result]
                 
                 columns = {}
                 for table in tables:
@@ -1334,7 +1350,7 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
                     except:
                         columns[table] = []
             
-            self._send_json({'success': True, 'tables': tables, 'columns': columns})
+            self._send_json({'success': True, 'tables': tables, 'procedures': procedures, 'functions': functions, 'columns': columns})
             
         except Exception as e:
             self._send_json({'success': False, 'error': str(e)})
@@ -1397,6 +1413,8 @@ class ResultViewerHandler(BaseHTTPRequestHandler):
                                 value = value.decode('utf-8')
                             except:
                                 value = '[BINARY]'
+                        elif isinstance(value, datetime):
+                            value = value.strftime('%Y-%m-%d %H:%M:%S')
                         formatted_row.append(value)
                     formatted_rows.append(formatted_row)
             
