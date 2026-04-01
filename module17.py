@@ -1084,7 +1084,7 @@ class Module17(ttk.Frame):
             try:
                 if conn_data and conn_data.get('Connection_id'):
                     sql = """UPDATE sqlyog_connections_test 
-                             SET Name=%s, Host=%s, Port=%s, User=%s, Password=%s, Database=%s,
+                             SET Name=%s, Host=%s, Port=%s, User=%s, Password=%s, `Database`=%s,
                                  SSH=%s, SshHost=%s, SshPort=%s, SshUser=%s, SshPwd=%s
                              WHERE Connection_id=%s"""
                     execute_sql('mysql.xjjhhb01', sql, (name, host, port, user, password_encrypted, database,
@@ -1092,7 +1092,7 @@ class Module17(ttk.Frame):
                                                         conn_data['Connection_id']))
                 else:
                     sql = """INSERT INTO sqlyog_connections_test 
-                             (Name, Host, Port, User, Password, Database, SSH, SshHost, SshPort, SshUser, SshPwd)
+                             (Name, Host, Port, User, Password, `Database`, SSH, SshHost, SshPort, SshUser, SshPwd)
                              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
                     execute_sql('mysql.xjjhhb01', sql, (name, host, port, user, password_encrypted, database,
                                                         ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password_encrypted))
@@ -1281,7 +1281,7 @@ class Module17(ttk.Frame):
                         imported_count += 1
                 else:
                     sql = """INSERT INTO sqlyog_connections_test 
-                             (Name, Host, Port, User, Password, Database, SSH, SshHost, SshPort, SshUser, SshPwd)
+                             (Name, Host, Port, User, Password, `Database`, SSH, SshHost, SshPort, SshUser, SshPwd)
                              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
                     execute_sql('mysql.xjjhhb01', sql, (name, host, port, user, password_encrypted, database,
                                                         ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password_encrypted))
