@@ -91,12 +91,9 @@ class Module17(ttk.Frame):
         self.sub_notebook.add(query_frame, text='SQL查询')
         
         query_frame.columnconfigure(0, weight=1)
-        query_frame.columnconfigure(1, weight=0)
-        query_frame.rowconfigure(1, weight=0)
+        query_frame.rowconfigure(1, weight=1)
         
-        self._setup_top_panel(query_frame)
-        self._setup_middle_panel(query_frame)
-        self._setup_status_bar(query_frame)
+        self._setup_simple_query_panel(query_frame)
         
     def _setup_top_panel(self, parent):
         top_frame = ttk.Frame(parent)
@@ -212,10 +209,31 @@ class Module17(ttk.Frame):
         ttk.Label(param_frame, text="参数输入", style='Header.TLabel').grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
         ttk.Label(param_frame, text="请选择预设SQL模板", style='Info.TLabel').grid(row=1, column=0, columnspan=2)
         
-    def _setup_status_bar(self, parent):
+    def _setup_simple_query_panel(self, parent):
+        main_frame = ttk.Frame(parent)
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=1)
+        
+        ttk.Label(main_frame, text="选择数据库连接:", style='Header.TLabel').grid(row=0, column=0, sticky=tk.W, padx=(0, 10), pady=(0, 10))
+        
+        control_frame = ttk.Frame(main_frame)
+        control_frame.grid(row=1, column=0, sticky=(tk.W, tk.E))
+        
+        self.db_var = tk.StringVar()
+        self.db_combo = ttk.Combobox(control_frame, textvariable=self.db_var, width=60, state='readonly')
+        self.db_combo.grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
+        self.db_combo.bind('<<ComboboxSelected>>', self.on_db_selected)
+        
+        btn_frame = ttk.Frame(control_frame)
+        btn_frame.grid(row=0, column=1, padx=5)
+        
+        ttk.Button(btn_frame, text="刷新连接", command=self.load_db_connections, style='Action.TButton').grid(row=0, column=0, padx=2)
+        ttk.Button(btn_frame, text="Link", command=self.open_web_interface, style='Primary.TButton').grid(row=0, column=1, padx=2)
+        
         self.status_var = tk.StringVar(value="就绪")
         status_bar = ttk.Label(parent, textvariable=self.status_var, style='Info.TLabel', relief=tk.SUNKEN, anchor=tk.W)
-        status_bar.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(5, 0))
+        status_bar.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
         
     def _create_db_manager_tab(self):
         self.db_manager_frame = ttk.Frame(self.sub_notebook, padding="10")
@@ -321,11 +339,38 @@ class Module17(ttk.Frame):
         
         self.selected_sql_template = None
         
+    def open_web_interface(self):
+        if not self.selected_db_config:
+            self.show_dialog("警告", "请先选择目标数据库")
+            return
+        
+        result_viewer.start_server()
+        url = result_viewer.open_web_console(self.selected_db_config)
+        self.status_var.set(f"已在浏览器中打开查询器: {url}")
+    
     def load_db_connections(self):
         try:
-            sql = "SELECT * FROM sql_query_db_connections ORDER BY name"
+            sql = "SELECT * FROM sqlyog_connections_test ORDER BY Name"
             results = execute_sql('mysql.xjjhhb01', sql)
-            self.db_connections = results if results else []
+            self.db_connections = []
+            if results:
+                for conn in results:
+                    self.db_connections.append({
+                        'id': conn.get('Connection_id'),
+                        'name': conn.get('Name'),
+                        'host': conn.get('Host'),
+                        'port': conn.get('Port', 3306),
+                        'user': conn.get('User'),
+                        'password': conn.get('Password'),
+                        'password_encrypted': 1,
+                        'database': conn.get('Database', ''),
+                        'ssh_enabled': conn.get('SSH', 0),
+                        'ssh_host': conn.get('SshHost', ''),
+                        'ssh_port': conn.get('SshPort', 22),
+                        'ssh_user': conn.get('SshUser', ''),
+                        'ssh_password': conn.get('SshPwd', ''),
+                        'ssh_password_encrypted': 1,
+                    })
             self._update_db_combo()
             self.load_db_connections_to_tree()
         except Exception as e:
@@ -412,6 +457,9 @@ class Module17(ttk.Frame):
             self.selected_sql_template = template_id
             
     def _render_template_buttons(self, filter_text=''):
+        if not hasattr(self, 'template_inner_frame'):
+            return
+            
         for widget in self.template_inner_frame.winfo_children():
             widget.destroy()
         self.template_buttons = []
@@ -884,7 +932,7 @@ class Module17(ttk.Frame):
             self.show_dialog("提示", "请先选择要编辑的连接")
             return
             
-        sql = "SELECT * FROM sql_query_db_connections WHERE id = %s"
+        sql = "SELECT * FROM sqlyog_connections_test WHERE Connection_id = %s"
         results = execute_sql('mysql.xjjhhb01', sql, (self.selected_db_connection,))
         
         if results:
@@ -924,8 +972,23 @@ class Module17(ttk.Frame):
             entry.grid(row=i, column=1, sticky=(tk.W, tk.E), pady=2)
             
             if conn_data:
-                value = conn_data.get(key, '')
-                if key == 'password' and conn_data.get('password_encrypted', 0) == 1:
+                # 处理sqlyog_connections_test表的字段名
+                if key == 'name':
+                    value = conn_data.get('Name', '')
+                elif key == 'host':
+                    value = conn_data.get('Host', '')
+                elif key == 'port':
+                    value = conn_data.get('Port', 3306)
+                elif key == 'user':
+                    value = conn_data.get('User', '')
+                elif key == 'password':
+                    value = conn_data.get('Password', '')
+                elif key == 'database':
+                    value = conn_data.get('Database', '')
+                else:
+                    value = conn_data.get(key, '')
+                # 所有密码都是加密的
+                if key == 'password':
                     try:
                         value = sqlyog_decode(value)
                     except:
@@ -936,7 +999,7 @@ class Module17(ttk.Frame):
                 
             entries[key] = entry
             
-        ssh_var = tk.IntVar(value=conn_data.get('ssh_enabled', 0) if conn_data else 0)
+        ssh_var = tk.IntVar(value=conn_data.get('SSH', 0) if conn_data else 0)
         ssh_frame = tk.Frame(main_frame)
         
         def toggle_ssh():
@@ -969,8 +1032,19 @@ class Module17(ttk.Frame):
             entry.grid(row=i, column=1, sticky=(tk.W, tk.E), pady=2)
             
             if conn_data:
-                value = conn_data.get(key, '')
-                if key == 'ssh_password' and conn_data.get('ssh_password_encrypted', 0) == 1:
+                # 处理sqlyog_connections_test表的SSH字段名
+                if key == 'ssh_host':
+                    value = conn_data.get('SshHost', '')
+                elif key == 'ssh_port':
+                    value = conn_data.get('SshPort', 22)
+                elif key == 'ssh_user':
+                    value = conn_data.get('SshUser', '')
+                elif key == 'ssh_password':
+                    value = conn_data.get('SshPwd', '')
+                else:
+                    value = conn_data.get(key, '')
+                # 所有密码都是加密的
+                if key == 'ssh_password':
                     try:
                         value = sqlyog_decode(value)
                     except:
@@ -1011,19 +1085,18 @@ class Module17(ttk.Frame):
             ssh_password_encrypted = sqlyog_encode(ssh_password) if ssh_password else ''
             
             try:
-                if conn_data and conn_data.get('id'):
-                    sql = """UPDATE sql_query_db_connections 
-                             SET name=%s, host=%s, port=%s, user=%s, password=%s, `database`=%s,
-                                 ssh_enabled=%s, ssh_host=%s, ssh_port=%s, ssh_user=%s, ssh_password=%s,
-                                 password_encrypted=1, ssh_password_encrypted=1
-                             WHERE id=%s"""
+                if conn_data and conn_data.get('Connection_id'):
+                    sql = """UPDATE sqlyog_connections_test 
+                             SET Name=%s, Host=%s, Port=%s, User=%s, Password=%s, `Database`=%s,
+                                 SSH=%s, SshHost=%s, SshPort=%s, SshUser=%s, SshPwd=%s
+                             WHERE Connection_id=%s"""
                     execute_sql('mysql.xjjhhb01', sql, (name, host, port, user, password_encrypted, database,
                                                         ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password_encrypted,
-                                                        conn_data['id']))
+                                                        conn_data['Connection_id']))
                 else:
-                    sql = """INSERT INTO sql_query_db_connections 
-                             (name, host, port, user, password, `database`, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, password_encrypted, ssh_password_encrypted)
-                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, 1)"""
+                    sql = """INSERT INTO sqlyog_connections_test 
+                             (Name, Host, Port, User, Password, `Database`, SSH, SshHost, SshPort, SshUser, SshPwd)
+                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
                     execute_sql('mysql.xjjhhb01', sql, (name, host, port, user, password_encrypted, database,
                                                         ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password_encrypted))
                                                         
@@ -1126,7 +1199,7 @@ class Module17(ttk.Frame):
         
         if dialog.result:
             try:
-                sql = "DELETE FROM sql_query_db_connections WHERE id = %s"
+                sql = "DELETE FROM sqlyog_connections_test WHERE Connection_id = %s"
                 execute_sql('mysql.xjjhhb01', sql, (self.selected_db_connection,))
                 self.show_dialog("成功", "删除成功")
                 self.load_db_connections()
@@ -1184,7 +1257,7 @@ class Module17(ttk.Frame):
                 if not all([name, host, user, password]):
                     continue
                     
-                check_sql = "SELECT id FROM sql_query_db_connections WHERE name = %s"
+                check_sql = "SELECT Connection_id FROM sqlyog_connections_test WHERE Name = %s"
                 existing = execute_sql('mysql.xjjhhb01', check_sql, (name,))
                 
                 if existing:
@@ -1192,28 +1265,27 @@ class Module17(ttk.Frame):
                     
                 if not database:
                     conn_data = {
-                        'name': name,
-                        'host': host,
-                        'port': port,
-                        'user': user,
-                        'password': password,
-                        'password_encrypted': 0,
-                        'database': '',
-                        'ssh_enabled': ssh_enabled,
-                        'ssh_host': ssh_host,
-                        'ssh_port': ssh_port,
-                        'ssh_user': ssh_user,
-                        'ssh_password': ssh_password,
-                        'ssh_password_encrypted': 0
+                        'Connection_id': None,
+                        'Name': name,
+                        'Host': host,
+                        'Port': port,
+                        'User': user,
+                        'Password': password,
+                        'Database': '',
+                        'SSH': ssh_enabled,
+                        'SshHost': ssh_host,
+                        'SshPort': ssh_port,
+                        'SshUser': ssh_user,
+                        'SshPwd': ssh_password
                     }
                     dialog = self._show_db_connection_dialog(conn_data)
                     self.tab_control.wait_window(dialog)
                     if dialog.saved:
                         imported_count += 1
                 else:
-                    sql = """INSERT INTO sql_query_db_connections 
-                             (name, host, port, user, password, `database`, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, password_encrypted, ssh_password_encrypted)
-                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, 1)"""
+                    sql = """INSERT INTO sqlyog_connections_test 
+                             (Name, Host, Port, User, Password, `Database`, SSH, SshHost, SshPort, SshUser, SshPwd)
+                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
                     execute_sql('mysql.xjjhhb01', sql, (name, host, port, user, password_encrypted, database,
                                                         ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password_encrypted))
                     imported_count += 1
@@ -1229,7 +1301,7 @@ class Module17(ttk.Frame):
             self.show_dialog("提示", "请先选择要测试的连接")
             return
             
-        sql = "SELECT * FROM sql_query_db_connections WHERE id = %s"
+        sql = "SELECT * FROM sqlyog_connections_test WHERE Connection_id = %s"
         results = execute_sql('mysql.xjjhhb01', sql, (self.selected_db_connection,))
         
         if not results:
@@ -1238,23 +1310,30 @@ class Module17(ttk.Frame):
         conn_data = results[0]
         
         try:
-            host = conn_data.get('host', '')
-            port = conn_data.get('port', 3306)
-            user = conn_data.get('user', '')
-            password = conn_data.get('password', '')
-            database = conn_data.get('database', '')
+            # 处理sqlyog_connections_test表的字段名
+            host = conn_data.get('Host', '')
+            port = conn_data.get('Port', 3306)
+            user = conn_data.get('User', '')
+            password = conn_data.get('Password', '')
+            database = conn_data.get('Database', '')
             
-            if conn_data.get('password_encrypted', 0) == 1:
+            # 所有密码都是加密的
+            try:
                 password = sqlyog_decode(password)
+            except:
+                pass
                 
-            if conn_data.get('ssh_enabled', 0) == 1:
-                ssh_host = conn_data.get('ssh_host', '')
-                ssh_port = conn_data.get('ssh_port', 22)
-                ssh_user = conn_data.get('ssh_user', '')
-                ssh_password = conn_data.get('ssh_password', '')
+            if conn_data.get('SSH', 0) == 1:
+                ssh_host = conn_data.get('SshHost', '')
+                ssh_port = conn_data.get('SshPort', 22)
+                ssh_user = conn_data.get('SshUser', '')
+                ssh_password = conn_data.get('SshPwd', '')
                 
-                if conn_data.get('ssh_password_encrypted', 0) == 1:
+                # 所有密码都是加密的
+                try:
                     ssh_password = sqlyog_decode(ssh_password)
+                except:
+                    pass
                     
                 is_win7 = platform.system() == 'Windows' and platform.release() == '7'
                 
